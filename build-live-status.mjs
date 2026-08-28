@@ -45,7 +45,7 @@ for (const e of msg.entity ?? []) {
   else if (delay !== null && delay >= DELAY_THRESHOLD) status = 'DELAYED';
   else continue;
   items.push({
-    id: tripId, line: info.line, headsign: info.dest, origin: info.origin, status,
+    id: tripId, line: info.line, operator: info.operator, headsign: info.dest, origin: info.origin, status,
     ...(status === 'DELAYED' ? { delaySeconds: delay } : {}),
     ...(info.scheduledDeparture ? { scheduledDepartureAt: info.scheduledDeparture } : {}),
   });

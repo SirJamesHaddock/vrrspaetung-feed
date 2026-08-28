@@ -82,11 +82,18 @@ const weekday = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday
 
 console.error(`target ${serviceDate} (${weekday}), Berlin offset ${offset}s`);
 
+// 0. Agencies (operator label).
+const agencies = new Map(); // agency_id -> name
+for await (const a of rows('agency.txt')) agencies.set(a.agency_id, (a.agency_name || '').trim());
+
 // 1. Bus routes.
-const busRoutes = new Map(); // route_id -> line label
+const busRoutes = new Map(); // route_id -> { line, operator }
 for await (const r of rows('routes.txt')) {
   if (r.route_type !== '3') continue;
-  busRoutes.set(r.route_id, (r.route_short_name || r.route_long_name || '').trim());
+  busRoutes.set(r.route_id, {
+    line: (r.route_short_name || r.route_long_name || '').trim(),
+    operator: agencies.get(r.agency_id) ?? '',
+  });
 }
 console.error(`bus routes: ${busRoutes.size}`);
 
@@ -117,12 +124,12 @@ for await (const cd of rows('calendar_dates.txt')) {
 console.error(`active services today: ${active.size}`);
 
 // 4. Candidate trips: bus route + active service.
-const candidates = new Map(); // trip_id -> { line }
+const candidates = new Map(); // trip_id -> { line, operator }
 for await (const t of rows('trips.txt')) {
   if (!active.has(t.service_id)) continue;
-  const line = busRoutes.get(t.route_id);
-  if (line === undefined) continue;
-  candidates.set(t.trip_id, { line });
+  const route = busRoutes.get(t.route_id);
+  if (route === undefined) continue;
+  candidates.set(t.trip_id, route);
 }
 console.error(`candidate bus trips today: ${candidates.size}`);
 
@@ -167,12 +174,12 @@ const trips = {};
 let kept = 0;
 for (const [tripId, a] of agg) {
   if (!a.vrr) continue;
-  const line = candidates.get(tripId).line;
+  const cand = candidates.get(tripId);
   const origin = a.originStop ? stops.get(a.originStop)?.name ?? null : null;
   const dest = a.destStop ? stops.get(a.destStop)?.name ?? null : null;
   let scheduledDeparture = null;
   try { if (a.originDep) scheduledDeparture = toIso(a.originDep); } catch { /* skip bad time */ }
-  trips[tripId] = { line, origin, dest, scheduledDeparture };
+  trips[tripId] = { line: cand.line, operator: cand.operator, origin, dest, scheduledDeparture };
   kept++;
 }
 
