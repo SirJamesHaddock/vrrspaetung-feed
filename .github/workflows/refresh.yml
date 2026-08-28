@@ -1,0 +1,57 @@
+name: refresh VRR feed
+
+on:
+  schedule:
+    # Live status: every ~5 min (GitHub's minimum granularity; may lag under load).
+    - cron: '*/5 * * * *'
+    # Static index: once daily (heavy: downloads the full gtfs.de dataset).
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh
+  cancel-in-progress: false
+
+jobs:
+  status:
+    if: github.event.schedule != '17 3 * * *'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm install --no-audit --no-fund
+      - run: node build-live-status.mjs vrr-index.json vrr-status.json
+      - name: commit
+        run: |
+          git config user.name "vrr-feed-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add vrr-status.json
+          git commit -m "chore: refresh live status" || echo "no change"
+          git pull --rebase --autostash || true
+          git push
+
+  index:
+    if: github.event.schedule == '17 3 * * *' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: download + filter gtfs.de nv
+        run: |
+          curl -sL -o nv.zip https://download.gtfs.de/germany/nv_free/latest.zip
+          mkdir gtfs && (cd gtfs && unzip -o ../nv.zip >/dev/null)
+          node --max-old-space-size=6144 build-vrr-index.mjs gtfs vrr-index.json
+          rm -rf gtfs nv.zip
+      - name: commit
+        run: |
+          git config user.name "vrr-feed-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add vrr-index.json
+          git commit -m "chore: refresh VRR static index" || echo "no change"
+          git pull --rebase --autostash || true
+          git push
